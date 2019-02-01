@@ -21,8 +21,10 @@ import io.gatling.core.check._
 import io.gatling.core.check.extractor.xpath._
 import io.gatling.http.check.HttpCheck
 import io.gatling.http.check.HttpCheckBuilders._
+import io.gatling.http.client.ahc.util.HttpUtils._
 import io.gatling.http.response.Response
 
+import io.netty.handler.codec.http.HttpHeaderNames
 import org.xml.sax.InputSource
 
 class HttpBodyXPathCheckMaterializer(xmlParsers: XmlParsers) extends CheckMaterializer[XPathCheckType, HttpCheck, Response, Option[Dom]] {
@@ -33,7 +35,20 @@ class HttpBodyXPathCheckMaterializer(xmlParsers: XmlParsers) extends CheckMateri
 
   private def xpathPreparer[T](f: InputSource => T)(response: Response): Validation[Option[T]] =
     safely(ErrorMapper) {
-      val root = if (response.hasResponseBody) Some(f(new InputSource(response.body.stream))) else None
+      val root = if (response.hasResponseBody) {
+        val inputSource = new InputSource(response.body.stream)
+
+        // force encoding if specified in Content-Type header
+        for {
+          contentType <- response.header(HttpHeaderNames.CONTENT_TYPE)
+          charset <- Option(extractContentTypeCharsetAttribute(contentType))
+        } inputSource.setEncoding(charset.name)
+
+        Some(f(inputSource))
+
+      } else {
+        None
+      }
       root.success
     }
 
